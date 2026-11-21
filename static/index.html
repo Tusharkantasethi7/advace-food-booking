@@ -52,12 +52,18 @@ label{font-size:.9rem;color:var(--mu)}
 <script>
 const KEY='tssquare_v1';
 let DB,me=null,view={n:'home'},cart={rid:null,items:{}};
-const seed=()=>({users:[],rests:[{id:'r1',name:'Spice Garden',email:'spice@demo.com',pass:'rest123',address:'Main Road, Rourkela',cuisine:'North Indian',status:'approved',menu:[{id:'m1',name:'Paneer Butter Masala',price:220},{id:'m2',name:'Butter Naan',price:40},{id:'m3',name:'Chicken Biryani',price:260},{id:'m4',name:'Gulab Jamun (2 pcs)',price:60}]}],orders:[]});
+const seed=()=>({users:[],rests:[{id:'r1',name:'Spice Garden',email:'spice@demo.com',pass:'rest123',address:'Main Road, Rourkela',cuisine:'North Indian',status:'approved',menu:[{id:'m1',name:'Paneer Butter Masala',price:220,qty:20},{id:'m2',name:'Butter Naan',price:40,qty:50},{id:'m3',name:'Chicken Biryani',price:260,qty:15},{id:'m4',name:'Gulab Jamun (2 pcs)',price:60,qty:30}]}],orders:[]});
 function load(){try{DB=JSON.parse(localStorage.getItem(KEY))}catch(e){}if(!DB||!DB.rests)DB=seed();try{me=JSON.parse(sessionStorage.getItem(KEY+'s'))}catch(e){me=null}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}}
 function sess(){try{sessionStorage.setItem(KEY+'s',JSON.stringify(me))}catch(e){}}
 const $=id=>document.getElementById(id),v=id=>($(id)?$(id).value.trim():''),uid=p=>p+Math.random().toString(36).slice(2,8);
 const inr=n=>'₹'+Number(n).toLocaleString('en-IN');
+// ---- stock helpers: qty = number of items in stock, empty (null) = unlimited ----
+const tracked=m=>m.qty!=null;
+const stockTag=m=>!tracked(m)?'':m.qty<1?'<span class="tag no">Out of stock</span>':m.qty<=5?`<span class="tag wa">Only ${m.qty} left</span>`:`<span class="tag">${m.qty} in stock</span>`;
+const totalStock=r=>r.menu.length&&r.menu.every(tracked)?r.menu.reduce((s,m)=>s+m.qty,0):null;
+function refreshDB(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.rests)DB=d}catch(e){}}
+function reserve(r,lines){for(const l of lines){const m=r.menu.find(x=>x.id===l.id);if(!m)return 'An item is no longer available';if(tracked(m)&&m.qty<l.q)return m.qty<1?m.name+' is out of stock':'Only '+m.qty+' left of '+m.name}return ''}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),2600)}
 function go(n,p={}){view={n,...p};render();scrollTo(0,0)}
@@ -79,7 +85,7 @@ function home(){
  const rs=DB.rests.filter(r=>r.status==='approved');
  return `<section class="hero"><h1>Book your meal now. Pick it up fresh.</h1><p>Choose a restaurant, order ahead, and pay just 25% to confirm. Pay the remaining 75% when you collect.</p></section>
  <div class="steps"><div><b>Choose</b><br><span class="mu">Pick a restaurant and your dishes</span></div><div><b>Pay 25%</b><br><span class="mu">Advance payment confirms your booking</span></div><div><b>Pick up</b><br><span class="mu">Show your code and pay the balance</span></div></div>
- <h2>Restaurants</h2>${rs.length?`<div class="grid">${rs.map(r=>`<div class="card"><h3>${esc(r.name)}</h3><div class="mu">${esc(r.cuisine)} · ${esc(r.address)}</div><p class="mu">${r.menu.length} dishes</p><button class="p" onclick="openRest('${r.id}')">View menu</button></div>`).join('')}</div>`:'<p class="mu">No restaurants yet. Restaurants can register from the Restaurant portal.</p>'}`;
+ <h2>Restaurants</h2>${rs.length?`<div class="grid">${rs.map(r=>`<div class="card"><h3>${esc(r.name)}</h3><div class="mu">${esc(r.cuisine)} · ${esc(r.address)}</div><p class="mu">${r.menu.length} dishes${totalStock(r)!==null?' · '+totalStock(r)+' in stock':''}</p><button class="p" onclick="openRest('${r.id}')">View menu</button></div>`).join('')}</div>`:'<p class="mu">No restaurants yet. Restaurants can register from the Restaurant portal.</p>'}`;
 }
 function openRest(id){if(cart.rid!==id)cart={rid:id,items:{}};go('menu',{rid:id})}
 
@@ -118,38 +124,49 @@ function menuPage(){
  const items=Object.entries(cart.items).filter(([,q])=>q>0).map(([id,q])=>({...r.menu.find(m=>m.id===id),q}));
  const tot=items.reduce((s,i)=>s+i.price*i.q,0),adv=Math.ceil(tot*.25);
  const today=new Date().toISOString().slice(0,10);
- return `<h2>${esc(r.name)}</h2><p class="mu">${esc(r.cuisine)} · ${esc(r.address)}</p>
- <div class="two"><div class="card">${r.menu.length?r.menu.map(m=>`<div class="row"><div><b>${esc(m.name)}</b><div class="mu">${inr(m.price)}</div></div><div><button onclick="qty('${m.id}',-1)" aria-label="Remove one">−</button> <b>${cart.items[m.id]||0}</b> <button onclick="qty('${m.id}',1)" aria-label="Add one">+</button></div></div>`).join(''):'<p class="mu">This restaurant has not added dishes yet.</p>'}</div>
+ return `<h2>${esc(r.name)}</h2><p class="mu">${esc(r.cuisine)} · ${esc(r.address)}${totalStock(r)!==null?' · '+totalStock(r)+' items in stock':''}</p>
+ <div class="two"><div class="card">${r.menu.length?r.menu.map(m=>`<div class="row"><div><b>${esc(m.name)}</b><div class="mu">${inr(m.price)} ${stockTag(m)}</div></div><div>${tracked(m)&&m.qty<1?'':`<button onclick="qty('${m.id}',-1,${tracked(m)?m.qty:-1})" aria-label="Remove one">−</button> <b>${cart.items[m.id]||0}</b> <button onclick="qty('${m.id}',1,${tracked(m)?m.qty:-1})" aria-label="Add one" ${tracked(m)&&(cart.items[m.id]||0)>=m.qty?'disabled':''}>+</button>`}</div></div>`).join(''):'<p class="mu">This restaurant has not added dishes yet.</p>'}</div>
  <div class="card"><h3>Your booking</h3>${items.length?items.map(i=>`<div class="row"><span>${i.q} × ${esc(i.name)}</span><span>${inr(i.price*i.q)}</span></div>`).join('')+`
  <div class="row"><span>Total</span><b>${inr(tot)}</b></div><div class="row"><span>Pay now (25%)</span><b style="color:var(--ac)">${inr(adv)}</b></div><div class="row"><span class="mu">Pay at pickup (75%)</span><span>${inr(tot-adv)}</span></div>
  <label>Pickup date</label><input id="pd" type="date" min="${today}" value="${today}"><label>Pickup time</label><input id="pt" type="time" value="19:00">
  <button class="p" style="width:100%" onclick="checkout()">Pay ${inr(adv)} and book</button>`:'<p class="mu">Add dishes to start your booking.</p>'}</div></div>`;
 }
-function qty(id,d){cart.items[id]=Math.max(0,(cart.items[id]||0)+d);const y=scrollY;render();scrollTo(0,y)}
+function qty(id,d,mx){const n=Math.max(0,(cart.items[id]||0)+d);if(mx>=0&&n>mx)return toast('Only '+mx+' left in stock');cart.items[id]=n;const y=scrollY;render();scrollTo(0,y)}
 function checkout(){
  if(!me||me.role!=='user'){toast('Log in as a customer to book');return go('auth',{role:'user',mode:'login'})}
  if(!v('pd')||!v('pt'))return toast('Choose pickup date and time');
- const r=DB.rests.find(x=>x.id===cart.rid),items=Object.entries(cart.items).filter(([,q])=>q>0).map(([id,q])=>{const m=r.menu.find(x=>x.id===id);return{n:m.name,p:m.price,q}});
+ const r=DB.rests.find(x=>x.id===cart.rid),items=Object.entries(cart.items).filter(([,q])=>q>0).map(([id,q])=>{const m=r.menu.find(x=>x.id===id);return{i:m.id,n:m.name,p:m.price,q}});
+ const bad=reserve(r,items.map(i=>({id:i.i,q:i.q})));if(bad){toast(bad);return render()}
  const total=items.reduce((s,i)=>s+i.p*i.q,0),adv=Math.ceil(total*.25);
  window._o={id:uid('o'),code:'TS'+Math.floor(1000+Math.random()*9000),uid:me.id,rid:r.id,items,total,adv,date:v('pd'),time:v('pt'),status:'Confirmed',at:Date.now()};
  $('ov').innerHTML=`<div class="modal"><div class="card"><h3>Pay advance ${inr(adv)}</h3><p class="mu">Demo payment. No real money is charged.</p><label>Method</label><select id="pm"><option>UPI</option><option>Debit / credit card</option><option>Net banking</option></select><label>UPI ID or card number</label><input id="pn" placeholder="name@upi"><button class="p" style="width:100%" onclick="payNow()">Pay ${inr(adv)}</button><button style="width:100%;margin-top:8px" onclick="$('ov').innerHTML=''">Cancel</button></div></div>`;
 }
 function payNow(){
  if(!v('pn'))return toast('Enter payment details');
- DB.orders.push(window._o);save();cart={rid:null,items:{}};$('ov').innerHTML='';toast('Booking confirmed');go('user');
+ refreshDB();const o=window._o,r=DB.rests.find(x=>x.id===o.rid),bad=reserve(r,o.items.map(i=>({id:i.i,q:i.q})));
+ if(bad){$('ov').innerHTML='';toast(bad);return render()}
+ // buying reduces the stock; remember what is left so the customer can see it
+ o.items.forEach(i=>{const m=r.menu.find(x=>x.id===i.i);if(tracked(m)){m.qty-=i.q;i.r=1;i.left=m.qty}});
+ DB.orders.push(o);save();cart={rid:null,items:{}};
+ const left=o.items.filter(i=>i.left!=null).map(i=>`<div class="row"><span>${esc(i.n)}</span><b>${i.left} left</b></div>`).join('');
+ $('ov').innerHTML=`<div class="modal"><div class="card"><h3>Booking confirmed</h3><p>Your code: <span class="code">${o.code}</span></p><p class="mu">Pickup ${o.date} at ${o.time}</p>${left?`<h3 style="margin-top:14px">Remaining stock</h3>${left}`:''}<button class="p" style="width:100%;margin-top:12px" onclick="$('ov').innerHTML=''">OK</button></div></div>`;
+ go('user');
 }
 
 function ordCard(o,who){
  const r=DB.rests.find(x=>x.id===o.rid),u=DB.users.find(x=>x.id===o.uid),cls={Confirmed:'wa',Preparing:'wa',Ready:'ok','Picked up':'ok',Cancelled:'no'}[o.status];
  return `<div class="card"><div class="row"><span class="code">${o.code}</span><span class="tag ${cls}">${o.status}</span></div>
  <div class="mu">${who==='user'?esc(r?r.name:''):who==='rest'?esc(u?u.name:'')+' · '+esc(u&&u.phone||''):esc(r?r.name:'')+' ← '+esc(u?u.name:'')}</div>
- <p style="margin:6px 0">${o.items.map(i=>i.q+' × '+esc(i.n)).join(', ')}</p>
+ <p style="margin:6px 0">${o.items.map(i=>i.q+' × '+esc(i.n)+(who==='user'&&i.left!=null&&o.status!=='Cancelled'?' <span class="mu">('+i.left+' left after your order)</span>':'')).join(', ')}</p>
  <div class="mu">Pickup ${o.date} at ${o.time}</div>
  <div class="row"><span>Total</span><b>${inr(o.total)}</b></div><div class="row"><span>Advance paid (25%)</span><span>${inr(o.adv)}</span></div><div class="row"><span>Balance at pickup</span><b>${o.status==='Picked up'?'Paid':inr(o.total-o.adv)}</b></div>
  ${who==='rest'&&!['Picked up','Cancelled'].includes(o.status)?`<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${o.status==='Confirmed'?`<button class="p" onclick="setSt('${o.id}','Preparing')">Start preparing</button>`:''}${o.status==='Preparing'?`<button class="p" onclick="setSt('${o.id}','Ready')">Mark ready</button>`:''}${o.status==='Ready'?`<button class="p" onclick="setSt('${o.id}','Picked up')">Balance collected, picked up</button>`:''}<button class="d" onclick="setSt('${o.id}','Cancelled')">Cancel</button></div>`:''}
  ${who==='user'&&o.status==='Confirmed'?`<button class="d" style="margin-top:8px" onclick="setSt('${o.id}','Cancelled')">Cancel booking</button>`:''}</div>`;
 }
-function setSt(id,s){DB.orders.find(o=>o.id===id).status=s;save();render()}
+function setSt(id,s){
+ const o=DB.orders.find(x=>x.id===id);
+ if(s==='Cancelled'&&o.status!=='Cancelled'){const r=DB.rests.find(x=>x.id===o.rid);o.items.forEach(i=>{if(i.r&&r){const m=r.menu.find(x=>x.id===i.i);if(m&&tracked(m))m.qty+=i.q}})}
+ o.status=s;save();render()}
 function userPage(){
  if(!user())return auth.call({}),go('auth',{role:'user',mode:'login'}),'';
  const os=DB.orders.filter(o=>o.uid===me.id).sort((a,b)=>b.at-a.at);
@@ -161,12 +178,17 @@ function restPage(){
  if(r.status!=='approved')return `<div class="card"><h2>${esc(r.name)}</h2><p>Status: <span class="tag ${r.status==='rejected'?'no':'wa'}">${r.status}</span></p><p class="mu">${r.status==='pending'?'An admin will review your registration soon.':'Your registration was rejected. Contact TS Square support.'}</p></div>`;
  const os=DB.orders.filter(o=>o.rid===r.id).sort((a,b)=>b.at-a.at),tab=view.tab||'orders';
  const rev=os.filter(o=>o.status!=='Cancelled').reduce((s,o)=>s+o.total,0);
- return `<h2>${esc(r.name)}</h2><div class="stats"><div class="card"><b>${os.filter(o=>['Confirmed','Preparing','Ready'].includes(o.status)).length}</b>Active bookings</div><div class="card"><b>${os.length}</b>All bookings</div><div class="card"><b>${inr(rev)}</b>Booked value</div></div>
+ return `<h2>${esc(r.name)}</h2><div class="stats"><div class="card"><b>${os.filter(o=>['Confirmed','Preparing','Ready'].includes(o.status)).length}</b>Active bookings</div><div class="card"><b>${os.length}</b>All bookings</div><div class="card"><b>${inr(rev)}</b>Booked value</div><div class="card"><b>${r.menu.reduce((s,m)=>s+(tracked(m)?m.qty:0),0)}</b>Units in stock</div></div>
  <div class="tabs"><button class="${tab==='orders'?'on':''}" onclick="go('rest',{tab:'orders'})">Bookings</button><button class="${tab==='menu'?'on':''}" onclick="go('rest',{tab:'menu'})">Menu</button></div>
  ${tab==='orders'?(os.length?`<div class="grid">${os.map(o=>ordCard(o,'rest')).join('')}</div>`:'<p class="mu">No bookings yet.</p>'):
- `<div class="two"><div class="card">${r.menu.length?r.menu.map(m=>`<div class="row"><span>${esc(m.name)} · ${inr(m.price)}</span><button class="d" onclick="delItem('${m.id}')">Remove</button></div>`).join(''):'<p class="mu">Add your first dish.</p>'}</div><div class="card"><h3>Add dish</h3><label>Dish name</label><input id="mn"><label>Price (₹)</label><input id="mp" type="number" min="1"><button class="p" onclick="addItem()">Add dish</button></div></div>`}`;
+ `<div class="two"><div class="card">${r.menu.length?r.menu.map(m=>`<div class="row"><span>${esc(m.name)} · ${inr(m.price)}<br>${stockTag(m)||'<span class="tag">Unlimited</span>'}</span><span style="display:flex;gap:6px;align-items:center"><input id="q_${m.id}" type="number" min="0" step="1" placeholder="Unlimited" value="${tracked(m)?m.qty:''}" style="width:100px;margin:0" aria-label="Quantity in stock"><button class="p" onclick="saveQty('${m.id}')">Save</button><button class="d" onclick="delItem('${m.id}')">Remove</button></span></div>`).join(''):'<p class="mu">Add your first dish.</p>'}</div><div class="card"><h3>Add dish</h3><label>Dish name</label><input id="mn"><label>Price (₹)</label><input id="mp" type="number" min="1"><label>Quantity in stock (empty = unlimited)</label><input id="mq" type="number" min="0" step="1"><button class="p" onclick="addItem()">Add dish</button></div></div>`}`;
 }
-function addItem(){const n=v('mn'),p=+v('mp');if(!n||!(p>0))return toast('Enter dish name and price');rest().menu.push({id:uid('m'),name:n,price:p});save();render()}
+function addItem(){const n=v('mn'),p=+v('mp'),qv=v('mq');if(!n||!(p>0))return toast('Enter dish name and price');
+ const stock=qv===''?null:Number(qv);if(stock!==null&&(!Number.isSafeInteger(stock)||stock<0))return toast('Enter a valid whole-number quantity');
+ rest().menu.push({id:uid('m'),name:n,price:p,qty:stock});save();render()}
+function saveQty(id){const x=v('q_'+id),m=rest().menu.find(i=>i.id===id);
+ if(x==='')m.qty=null;else{const n=Number(x);if(!Number.isSafeInteger(n)||n<0)return toast('Enter a valid whole-number quantity');m.qty=n}
+ save();toast('Stock updated');render()}
 function delItem(id){const r=rest();r.menu=r.menu.filter(m=>m.id!==id);save();render()}
 
 function adminPage(){
